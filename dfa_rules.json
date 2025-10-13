@@ -3,6 +3,7 @@
   "final_states": {
     "S_IDENTIFIER": "IDENTIFIER",
     "S_NUMBER": "NUMBER",
+    "S_REAL": "NUMBER",
     "S_ASSIGN": "ASSIGN_OPERATOR",
     "S_COLON": "COLON",
     "S_LT": "RELATIONAL_OPERATOR",
@@ -23,7 +24,7 @@
     "S_MINUS": "ARITHMETIC_OPERATOR",
     "S_MULTIPLY": "ARITHMETIC_OPERATOR",
     "S_DIVIDE": "ARITHMETIC_OPERATOR",
-    "S_STRING_LITERAL": "STRING_LITERAL"
+    "S_STRING_END_WAIT": "STRING_LITERAL"
   },
   "keywords": [
     "program", "var", "begin", "end", "if", "then", "else",
@@ -37,17 +38,17 @@
     "S0": {
       "letter": "S_IDENTIFIER",
       "digit": "S_NUMBER",
-      ":": "S_COLON_WAIT",
-      "<": "S_LT_WAIT",
-      ">": "S_GT_WAIT",
+      ":": "S_COLON",
+      "<": "S_LT",
+      ">": "S_GT",
       "=": "S_EQ",
-      "(": "S_LPAREN_OR_COMMENT",
+      "(": "S_LPAREN",
       ")": "S_RPAREN",
       "{": "S_COMMENT_BRACE",
-      "'": "S_STRING_START",
+      "'": "S_IN_STRING",
       ";": "S_SEMICOLON",
       ",": "S_COMMA",
-      ".": "S_DOT_WAIT",
+      ".": "S_DOT",
       "[": "S_LBRACKET",
       "]": "S_RBRACKET",
       "+": "S_PLUS",
@@ -60,20 +61,30 @@
       "digit": "S_IDENTIFIER"
     },
     "S_NUMBER": {
-      "digit": "S_NUMBER"
+      "digit": "S_NUMBER",
+      ".": "S_REAL_WAIT"
     },
-    "S_COLON_WAIT": {
+    "S_REAL_WAIT": {
+      "digit": "S_REAL"
+    },
+    "S_REAL": {
+      "digit": "S_REAL"
+    },
+    "S_COLON": {
       "=": "S_ASSIGN"
     },
-    "S_LT_WAIT": {
+    "S_LT": {
       "=": "S_LE",
       ">": "S_NE"
     },
-    "S_GT_WAIT": {
+    "S_GT": {
       "=": "S_GE"
     },
-    "S_LPAREN_OR_COMMENT": {
-        "*": "S_COMMENT_STAR"
+    "S_DOT": {
+      ".": "S_RANGE"
+    },
+    "S_MULTIPLY": {
+      "*": "S_COMMENT_STAR"
     },
     "S_COMMENT_STAR": {
         "*": "S_COMMENT_STAR_END_WAIT",
@@ -87,15 +98,12 @@
         "}": "S0",
         "any_not_}": "S_COMMENT_BRACE"
     },
-    "S_DOT_WAIT": {
-        ".": "S_RANGE"
-    },
-    "S_STRING_START": {
-      "any_not_'": "S_IN_STRING"
-    },
     "S_IN_STRING": {
-      "'": "S_STRING_LITERAL",
+      "'": "S_STRING_END_WAIT",
       "any_not_'": "S_IN_STRING"
+    },
+    "S_STRING_END_WAIT":{
+      "'": "S_IN_STRING"
     }
   }
 }
