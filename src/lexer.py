@@ -30,9 +30,36 @@ def tokenize(source_code, dfa):
     while i < length:
         c = source_code[i]
         char_type = classify_char(c)
-        next_state = transitions.get(state, {}).get(char_type) or transitions.get(state, {}).get(c)
+        
+        if state == "S_COMMENT_BRACE":
+            if c == "}":
+                state = "S0"
+                i += 1
+                continue
+            else:
+                i += 1
+                continue
 
-        if state == "S_IN_STRING":
+        elif state == "S_COMMENT_STAR":
+            if c == "*":
+                state = "S_COMMENT_STAR_END_WAIT"
+                i += 1
+                continue
+            else:
+                i += 1
+                continue
+
+        elif state == "S_COMMENT_STAR_END_WAIT":
+            if c == ")":
+                state = "S0"
+                i += 1
+                continue
+            else:
+                state = "S_COMMENT_STAR"
+                i += 1
+                continue
+
+        elif state == "S_IN_STRING":
             current_token += c
             if c == "'":
                 if i + 1 < length and source_code[i + 1] == "'":
@@ -53,6 +80,13 @@ def tokenize(source_code, dfa):
             current_token = ""
             state = dfa["start_state"]
             continue
+
+        if state == "S0" and c == "(" and i + 1 < length and source_code[i + 1] == "*":
+            state = "S_COMMENT_STAR"
+            i += 2
+            continue
+
+        next_state = transitions.get(state, {}).get(char_type) or transitions.get(state, {}).get(c)
 
         if next_state:
             current_token += c
