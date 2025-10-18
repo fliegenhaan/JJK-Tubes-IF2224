@@ -30,4 +30,3 @@ begin
     sum := sum * 2.0;
 
 end.
-
