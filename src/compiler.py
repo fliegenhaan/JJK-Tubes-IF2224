@@ -13,9 +13,11 @@ def main():
     with open(source_file, "r") as f:
         source_code = f.read()
 
-    tokens = tokenize(source_code, dfa)
+    return_code, tokens = tokenize(source_code, dfa)
 
-    # print(tokens)
+    if (return_code == 1):
+        print("Error: invalid token found")
+        sys.exit(1)
 
     print_tokens(tokens, source_file) 
 

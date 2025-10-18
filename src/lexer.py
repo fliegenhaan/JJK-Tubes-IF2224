@@ -83,17 +83,17 @@ def tokenize(source_code, dfa):
             current_token = ""
             state = start_state
             continue
-        tokens.append(("UNKNOWN", c))
-        current_token = ""
-        state = start_state
-        i += 1
+        return (1,None)
 
-    # flush last token
-    if current_token and state in final_states:
-        lexeme = current_token
-        token_type = finalize_identifier(final_states[state], lexeme, keywords, logical_ops, arith_keywords)
-        tokens.append((token_type, lexeme))
-    return tokens
+    if (current_token):
+        # flush last token
+        if state in final_states:
+            lexeme = current_token
+            token_type = finalize_identifier(final_states[state], lexeme, keywords, logical_ops, arith_keywords)
+            tokens.append((token_type, lexeme))
+        else:
+            return (1,None)
+    return (0,tokens)
 
 def print_tokens(tokens, input_path):
     base_name = os.path.basename(input_path)
