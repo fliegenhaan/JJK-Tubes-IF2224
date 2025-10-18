@@ -104,6 +104,9 @@
     },
     "S_STRING_END_WAIT":{
       "'": "S_IN_STRING"
+    },
+    "S_LPAREN": {
+        "*": "S_COMMENT_STAR"
     }
   }
 }

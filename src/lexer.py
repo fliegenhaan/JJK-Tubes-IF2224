@@ -1,8 +1,14 @@
 import json
 import os
 
+def load_dfa_rules():
+    current_dir = os.path.dirname(__file__)
+    dfa_path = os.path.join(current_dir, "dfa_rules.json")
+    with open(dfa_path, "r") as f:
+        return json.load(f)
+
 def classify_char(c):
-    if c.isalpha():
+    if c.isalpha() or c == '_':
         return "letter"
     elif c.isdigit():
         return "digit"
@@ -11,113 +17,83 @@ def classify_char(c):
     else:
         return c
 
-def load_dfa_rules():
-    current_dir = os.path.dirname(__file__)
-    dfa_path = os.path.join(current_dir, "dfa_rules.json")
-    with open(dfa_path, "r") as f:
-        return json.load(f)
+def step(current_state, c, transitions):
+    """Return (next_state, matched_key) using exact, class, or any_not_* rules."""
+    table = transitions.get(current_state, {})
+    # exact character
+    if c in table:
+        return table[c]
+    # character class
+    t = classify_char(c)
+    if t in table:
+        return table[t]
+    # wildcard
+    for k, v in table.items():
+        if k.startswith("any_not_"):
+            forbidden = k[len("any_not_"):]
+            if c != forbidden:
+                return v
+    return None
+
+def finalize_identifier(token_type, word, keywords, logical_ops, arith_keywords):
+    wl = word.lower()
+    if wl in keywords:
+        return "KEYWORD"
+    if wl in logical_ops:
+        return "LOGICAL_OPERATOR"
+    if wl in arith_keywords:
+        return "ARITHMETIC_OPERATOR"
+    return token_type
+
+def in_comment_state(s):
+    return s.startswith("S_COMMENT")
 
 def tokenize(source_code, dfa):
-    state = dfa["start_state"]
+    start_state = dfa["start_state"]
     final_states = dfa["final_states"]
     transitions = dfa["transitions"]
+    keywords = set(dfa.get("keywords", []))
+    logical_ops = set(dfa.get("logical_operators", []))
+    arith_keywords = set(dfa.get("arithmetic_keywords", []))
 
     tokens = []
+    state = start_state
     current_token = ""
     i = 0
-    length = len(source_code)
+    n = len(source_code)
 
-    while i < length:
+    while i < n:
         c = source_code[i]
-        char_type = classify_char(c)
-        
-        if state == "S_COMMENT_BRACE":
-            if c == "}":
-                state = "S0"
-                i += 1
-                continue
-            else:
-                i += 1
-                continue
-
-        elif state == "S_COMMENT_STAR":
-            if c == "*":
-                state = "S_COMMENT_STAR_END_WAIT"
-                i += 1
-                continue
-            else:
-                i += 1
-                continue
-
-        elif state == "S_COMMENT_STAR_END_WAIT":
-            if c == ")":
-                state = "S0"
-                i += 1
-                continue
-            else:
-                state = "S_COMMENT_STAR"
-                i += 1
-                continue
-
-        elif state == "S_IN_STRING":
-            current_token += c
-            if c == "'":
-                if i + 1 < length and source_code[i + 1] == "'":
-                    current_token += "'"
-                    i += 2
-                    continue
-                else:
-                    state = "S_STRING_END_WAIT"
-                    i += 1
-                    continue
-            else:
-                i += 1
-                continue
-
-        elif state == "S_STRING_END_WAIT":
-            token_type = final_states.get("S_STRING_END_WAIT", "STRING_LITERAL")
-            tokens.append((token_type, current_token))
-            current_token = ""
-            state = dfa["start_state"]
-            continue
-
-        if state == "S0" and c == "(" and i + 1 < length and source_code[i + 1] == "*":
-            state = "S_COMMENT_STAR"
-            i += 2
-            continue
-
-        next_state = transitions.get(state, {}).get(char_type) or transitions.get(state, {}).get(c)
-
-        if next_state:
-            current_token += c
-            state = next_state
+        if state == start_state and c.isspace():
             i += 1
-        else:
-            if state in final_states:
-                token_type = final_states[state]
-                word = current_token.strip()
-
-                if token_type == "IDENTIFIER":
-                    if word.lower() in dfa["keywords"]:
-                        token_type = "KEYWORD"
-                        word = word.lower()
-                    elif word.lower() in dfa["logical_operators"]:
-                        token_type = "LOGICAL_OPERATOR"
-                        word = word.lower()
-                    elif word.lower() in dfa["arithmetic_keywords"]:
-                        token_type = "ARITHMETIC_OPERATOR"
-                        word = word.lower()
-                    else:
-                        token_type = "IDENTIFIER"
-
-                tokens.append((token_type, word))
-
-            current_token = ""
-            state = dfa["start_state"]
-
-            if c.isspace():
+            continue
+        nxt = step(state, c, transitions)
+        if nxt:
+            if in_comment_state(state) or in_comment_state(nxt):
+                state = nxt
                 i += 1
+                continue
+            current_token += c
+            state = nxt
+            i += 1
+            continue
+        if state in final_states:
+            lexeme = current_token 
+            token_type = finalize_identifier(final_states[state] ,lexeme, keywords, logical_ops, arith_keywords)
+            tokens.append((token_type, lexeme))
+            current_token = ""
+            state = start_state
+            continue
+        tokens.append(("UNKNOWN", c))
+        current_token = ""
+        state = start_state
+        i += 1
 
+    # flush last token
+    if current_token and state in final_states:
+        lexeme = current_token
+        token_type = finalize_identifier(final_states[state], lexeme, keywords, logical_ops, arith_keywords)
+        tokens.append((token_type, lexeme))
     return tokens
 
 def print_tokens(tokens, input_path):
