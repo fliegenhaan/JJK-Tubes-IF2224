@@ -1,5 +1,5 @@
 Usage:
 
 ```
-python3 src/compiler.py test/milestone-1/input-1.pas
+python3 src/compiler.py test/milestone-1/{test_case_file_name}.pas
 ```

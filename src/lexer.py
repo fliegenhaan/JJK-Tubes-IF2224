@@ -122,7 +122,7 @@ def tokenize(source_code, dfa):
 
 def print_tokens(tokens, input_path):
     base_name = os.path.basename(input_path)
-    output_name = base_name.replace("input", "output").replace(".pas", ".txt")
+    output_name = base_name.replace("test", "result").replace(".pas", ".txt")
 
     output_dir = os.path.dirname(input_path)
     os.makedirs(output_dir, exist_ok=True)
