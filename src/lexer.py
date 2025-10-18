@@ -18,7 +18,6 @@ def classify_char(c):
         return c
 
 def step(current_state, c, transitions):
-    """Return (next_state, matched_key) using exact, class, or any_not_* rules."""
     table = transitions.get(current_state, {})
     # exact character
     if c in table:
