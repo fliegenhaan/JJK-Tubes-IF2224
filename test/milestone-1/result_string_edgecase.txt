@@ -1,7 +1,7 @@
 KEYWORD(program)
 IDENTIFIER(TestStrings)
 SEMICOLON(;)
-KEYWORD(begin)
+IDENTIFIER(begin)
 IDENTIFIER(writeln)
 LPARENTHESIS(()
 STRING_LITERAL('This is Pascal-S.')

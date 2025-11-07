@@ -27,13 +27,13 @@
     "S_STRING_END_WAIT": "STRING_LITERAL"
   },
   "keywords": [
-    "program", "var", "begin", "end", "if", "then", "else",
-    "while", "do", "for", "to", "downto", "integer", "real",
-    "boolean", "char", "array", "of", "procedure",
-    "function", "const", "type"
+    "program", "variabel", "mulai", "selesai", "jika", "maka", "selain-itu",
+    "selama", "lakukan", "untuk", "ke", "turun-ke", "integer", "real",
+    "boolean", "char", "larik", "dari", "prosedur",
+    "fungsi", "konstanta", "tipe", "rekaman", "ulangi", "sampai", "kasus"
   ],
-  "logical_operators": ["and", "or", "not"],
-  "arithmetic_keywords": ["div", "mod"],
+  "logical_operators": ["dan", "atau", "tidak"],
+  "arithmetic_keywords": ["bagi", "mod"],
   "transitions": {
     "S0": {
       "letter": "S_IDENTIFIER",
