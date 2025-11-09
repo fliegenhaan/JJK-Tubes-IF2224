@@ -20,6 +20,5 @@ mulai
           writeln('i=', i, ' j=', j, ' total=', total);
         selesai;
     selesai;
-
   writeln('Total akhir: ', total);
 selesai.

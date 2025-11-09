@@ -18,6 +18,5 @@ mulai
     4: hasil := 40;
     5: hasil := 50;
   selesai;
-
   writeln('Hasil: ', hasil);
 selesai.

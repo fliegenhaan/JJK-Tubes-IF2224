@@ -23,6 +23,5 @@ mulai
     selesai
   selain-itu
     hasil := -2;
-
   writeln('Hasil: ', hasil);
 selesai.
