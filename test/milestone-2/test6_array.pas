@@ -1,7 +1,7 @@
 program ArrayTest;
 
 variabel
-  angka: larik[1..5] dari integer;
+  angka: larik[1 .. 5] dari integer;
   i: integer;
 
 mulai

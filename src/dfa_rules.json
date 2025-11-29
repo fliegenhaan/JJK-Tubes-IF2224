@@ -30,7 +30,8 @@
     "program", "variabel", "mulai", "selesai", "jika", "maka", "selain-itu",
     "selama", "lakukan", "untuk", "ke", "turun-ke", "integer", "real",
     "boolean", "char", "larik", "dari", "prosedur",
-    "fungsi", "konstanta", "tipe", "rekaman", "ulangi", "sampai", "kasus"
+    "fungsi", "konstanta", "tipe", "rekaman", "ulangi", "sampai", "kasus",
+    "benar", "salah"
   ],
   "logical_operators": ["dan", "atau", "tidak"],
   "arithmetic_keywords": ["bagi", "mod"],
@@ -58,6 +59,7 @@
     },
     "S_IDENTIFIER": {
       "letter": "S_IDENTIFIER",
+      "-": "S_IDENTIFIER",
       "digit": "S_IDENTIFIER"
     },
     "S_NUMBER": {
