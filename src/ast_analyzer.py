@@ -69,6 +69,7 @@ class SemanticAnalyzer:
 
         self.display = [0] * 20 
         self.level = 0
+        self.current_subprogram = None
         
         self.init_keywords()
 
@@ -351,16 +352,81 @@ class SemanticAnalyzer:
         block_idx, _ = self._build_record_block(node)
         return block_idx
 
+    def _visit_FieldAccessNode_expr(self, node):
+        idx, entry = self.lookup(node.identifier_1)
+        if not entry:
+            self.error(f"Undeclared variable '{node.identifier_1}'")
+
+        base_type = entry.type
+        base_ref  = entry.ref
+
+        if base_type != 6:
+            self.error(f"'{node.identifier_1}' is not a record")
+
+        block_idx = base_ref
+
+        field_type, field_ref = self._lookup_field_in_record(block_idx, node.identifier_2)
+
+        tail = node.tail
+        while tail and tail.identifier:
+            if field_type != 6:
+                self.error(f"'{tail.identifier}' is not a field of a non-record value")
+            block_idx = field_ref
+            field_type, field_ref = self._lookup_field_in_record(block_idx, tail.identifier)
+            tail = tail.next_tail
+
+        node.type_index = field_type
+        return field_type
+
+    def _lookup_field_in_record(self, block_idx, field_name):
+        b = self.btab[block_idx]
+        curr = b.last
+        limit = b.lpar
+
+        while curr > limit:
+            entry = self.tab[curr]
+            if entry.name == field_name and entry.obj == OBJ_VARIABLE:
+                field_type = entry.type
+                field_ref  = entry.ref
+
+                if field_type > 5 and field_type < len(self.tab):
+                    type_entry = self.tab[field_type]
+                    if type_entry.obj == OBJ_TYPE:
+                        if type_entry.type in (T_INTEGER, T_REAL, T_BOOLEAN, T_CHAR, T_STRING):
+                            field_type = type_entry.type
+
+                        elif type_entry.type == 5:
+                            field_type = 5
+                            field_ref  = type_entry.ref
+
+                        elif type_entry.type == 6:
+                            field_type = 6
+                            field_ref  = type_entry.ref
+
+                return field_type, field_ref
+
+            curr = entry.link
+
+        self.error(f"Unknown field '{field_name}' in record")
+
+
         
     def visit_FieldListNode(self, node):
         type_idx = self._resolve_type(node.type_definition)
         size_per_field = self.get_type_size(type_idx)
 
+        field_type = type_idx
+        field_ref  = 0
+        if type_idx > 5:
+            type_entry = self.tab[type_idx]
+            field_type = type_entry.type
+            field_ref  = type_entry.ref
+
         identifiers = self._collect_identifiers(node.identifier_list)
 
         offset_accum = 0
         for field_name in identifiers:
-            self.enter(field_name, OBJ_VARIABLE, type_idx, adr=offset_accum)
+            self.enter(field_name, OBJ_VARIABLE, field_type, ref=field_ref, adr=offset_accum)
             offset_accum += size_per_field
 
         tail_size = 0
@@ -491,13 +557,16 @@ class SemanticAnalyzer:
     def visit_ProcedureNode(self, node):
         proc_name = node.identifier
         proc_idx = self.enter(proc_name, OBJ_PROCEDURE, T_NOTYPE)
+        prev_subprog = self.current_subprogram
+        self.current_subprogram = proc_idx
         
         self.level += 1
         new_btab_idx = len(self.btab)
         self.btab.append(BtabEntry(last=self.tab[proc_idx].link, lpar=0, psze=0, vsze=0)) 
         self.display[self.level] = new_btab_idx
         
-        if node.formal_parameter_list: self.analyze(node.formal_parameter_list)
+        if node.formal_parameter_list:
+            self.analyze(node.formal_parameter_list)
         
         if self.btab[new_btab_idx].lpar > 0:
             self.btab[new_btab_idx].last = self.btab[new_btab_idx].lpar
@@ -506,19 +575,23 @@ class SemanticAnalyzer:
 
         self.analyze(node.block)
         self.level -= 1
+        self.current_subprogram = prev_subprog
         return T_NOTYPE
 
     def visit_FunctionNode(self, node):
         func_name = node.identifier
         ret_type_idx = self._resolve_type(node.return_type)
         func_idx = self.enter(func_name, OBJ_FUNCTION, ret_type_idx)
+        prev_subprog = self.current_subprogram
+        self.current_subprogram = func_idx
         
         self.level += 1
         new_btab_idx = len(self.btab)
         self.btab.append(BtabEntry(last=self.tab[func_idx].link, lpar=0, psze=0, vsze=0))
         self.display[self.level] = new_btab_idx
         
-        if node.formal_parameter_list: self.analyze(node.formal_parameter_list)
+        if node.formal_parameter_list:
+            self.analyze(node.formal_parameter_list)
             
         if self.btab[new_btab_idx].lpar > 0:
             self.btab[new_btab_idx].last = self.btab[new_btab_idx].lpar
@@ -527,6 +600,7 @@ class SemanticAnalyzer:
             
         self.analyze(node.block)
         self.level -= 1
+        self.current_subprogram = prev_subprog
         return T_NOTYPE
 
     def visit_ParameterListNode(self, node):
@@ -544,12 +618,22 @@ class SemanticAnalyzer:
         btab_idx = self.display[self.level]
         param_adr = self.btab[btab_idx].psze
 
+        if self.current_subprogram is None:
+            self.error("Internal error: parameter group outside of procedure/function")
+        subprog_entry = self.tab[self.current_subprogram]
+        if not hasattr(subprog_entry, "param_types"):
+            subprog_entry.param_types = []
+            subprog_entry.param_is_var = []
         for name in identifiers:
             idx = self.enter(name, OBJ_PARAMETER, type_idx, nrm=nrm, adr=param_adr)
+            subprog_entry.param_types.append(type_idx)
+            subprog_entry.param_is_var.append(is_var_param)
             self.btab[btab_idx].lpar = idx
             self.btab[btab_idx].psze += 1
             param_adr += 1
+
         return T_NOTYPE
+
 
         
     def visit_ParameterTailNode(self, node):
@@ -564,6 +648,8 @@ class SemanticAnalyzer:
             name = node.var_node.identifier
             idx, entry = self.lookup(name)
             if entry:
+                if entry.obj == OBJ_CONSTANT:
+                    self.error(f"Cannot assign to constant '{name}'")
                 node.var_node.tab_index = idx
                 node.var_node.type_index = entry.type
                 lhs_type = entry.type
@@ -589,18 +675,87 @@ class SemanticAnalyzer:
 
         return lhs_type
 
+    def _typename(self, tid):
+        names = {
+            T_INTEGER:"integer",
+            T_REAL:"real",
+            T_BOOLEAN:"boolean",
+            T_CHAR:"char",
+            T_STRING:"string",
+        }
+        if tid in names:
+            return names[tid]
+        if tid < len(self.tab) and self.tab[tid].obj == OBJ_TYPE:
+            return self.tab[tid].name
+        return "?"
+
+
+    def _is_lvalue(self, node):
+        if isinstance(node, VarNode):
+            return True
+        if isinstance(node, FieldAccessNode):
+            return True
+        if isinstance(node, SimpleExprNode):
+            return self._is_lvalue(node.term)
+        if isinstance(node, TermNode):
+            return self._is_lvalue(node.factor)
+        if hasattr(node, "inner") and isinstance(node.inner, AST):
+            return self._is_lvalue(node.inner)
+        return False
 
     def visit_CallNode(self, node):
         name = node.identifier
         idx, entry = self.lookup(name)
         if not entry:
-            if name not in ['writeln', 'write']: 
+            if name not in ['writeln', 'write']:
                 self.error(f"Undeclared procedure or function '{name}'")
-        else:
-            if entry.obj not in [OBJ_PROCEDURE, OBJ_FUNCTION]:
-                self.error(f"'{name}' is not callable")
-            node.tab_index = idx
-        if node.parameter_list: self.analyze(node.parameter_list)
+            return T_NOTYPE
+        if entry.obj not in [OBJ_PROCEDURE, OBJ_FUNCTION]:
+            self.error(f"'{name}' is not callable")
+
+        node.tab_index = idx
+        formal_types = getattr(entry, "param_types", [])
+        formal_is_var = getattr(entry, "param_is_var", [])
+        actual_types = []
+        actual_nodes = []
+        if node.parameter_list:
+            curr = node.parameter_list
+            while curr:
+                expr = getattr(curr, "expression_node", None)
+                if expr is None:
+                    break
+
+                t = self.analyze_expression(expr)
+                actual_types.append(t)
+                actual_nodes.append(expr)
+
+                curr = curr.next_tail
+
+        if len(actual_types) != len(formal_types):
+            self.error(
+                f"Wrong number of arguments in call to '{name}': "
+                f"expected {len(formal_types)}, got {len(actual_types)}"
+            )
+
+        for i, (ftype, atype) in enumerate(zip(formal_types, actual_types)):
+            if formal_is_var[i]:
+                if not self._is_lvalue(actual_nodes[i]):
+                    self.error(
+                        f"Parameter {i+1} of '{name}' must be a variable "
+                        f"(passed expression)"
+                    )
+            if ftype == T_REAL and atype == T_INTEGER:
+                continue
+
+            if ftype != atype:
+                self.error(
+                    f"Type mismatch in argument {i+1} of '{name}': "
+                    f"expected {self._typename(ftype)}, got {self._typename(atype)}"
+                )
+
+        if entry.obj == OBJ_FUNCTION:
+            return entry.type
+
         return T_NOTYPE
 
     def visit_StatementListNode(self, node):
@@ -628,6 +783,9 @@ class SemanticAnalyzer:
                 t = T_BOOLEAN
             node.type_index = t
             return t
+
+        if isinstance(node, FieldAccessNode):
+            return self._visit_FieldAccessNode_expr(node)
 
         if isinstance(node, VarNode):
             idx, entry = self.lookup(node.identifier)
