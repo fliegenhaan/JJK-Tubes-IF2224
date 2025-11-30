@@ -3,7 +3,6 @@
   "final_states": {
     "S_IDENTIFIER": "IDENTIFIER",
     "S_NUMBER": "NUMBER",
-    "S_REAL": "NUMBER",
     "S_ASSIGN": "ASSIGN_OPERATOR",
     "S_COLON": "COLON",
     "S_LT": "RELATIONAL_OPERATOR",
@@ -63,14 +62,7 @@
       "digit": "S_IDENTIFIER"
     },
     "S_NUMBER": {
-      "digit": "S_NUMBER",
-      ".": "S_REAL_WAIT"
-    },
-    "S_REAL_WAIT": {
-      "digit": "S_REAL"
-    },
-    "S_REAL": {
-      "digit": "S_REAL"
+      "digit": "S_NUMBER"
     },
     "S_COLON": {
       "=": "S_ASSIGN"

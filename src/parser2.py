@@ -120,11 +120,32 @@ class ParseNode:
                 
         return hasil
 
-# Definisi grammar rule
+class NumberNode(ParseNode):
+    def grammar(self):
+        return [
+            [Terminal("NUMBER"), Terminal("DOT"), Terminal("NUMBER")],
+            
+            [Terminal("NUMBER")]
+        ]
+
+class FieldAccessTailNode(ParseNode):
+    def grammar(self):
+        return [
+            [Terminal("DOT"), Terminal("IDENTIFIER"), FieldAccessTailNode],
+            []
+        ]
+
+class FieldAccessNode(ParseNode):
+    def grammar(self):
+        return [
+            [Terminal("IDENTIFIER"), Terminal("DOT"), Terminal("IDENTIFIER"), FieldAccessTailNode]
+        ]
+
 class ValueNode(ParseNode):
     def grammar(self):
         return [
-            [Terminal("NUMBER")],
+            [FieldAccessNode],
+            [NumberNode], 
             [Terminal("CHAR_LITERAL")],
             [Terminal("STRING_LITERAL")],
             [Terminal("KEYWORD", "benar")],
@@ -228,7 +249,8 @@ class ExpressionNode(ParseNode):
 class AssignmentStatementNode(ParseNode):
     def grammar(self):
         return [
-            [Terminal("IDENTIFIER"), Terminal("ASSIGN_OPERATOR"), ExpressionNode]
+            [Terminal("IDENTIFIER"), Terminal("ASSIGN_OPERATOR"), ExpressionNode],
+            [FieldAccessNode, Terminal("ASSIGN_OPERATOR"), ExpressionNode]
         ]
 
 class EmptyStatementNode(ParseNode):
@@ -372,7 +394,7 @@ class VarItemTailNode(ParseNode):
 class VarItemNode(ParseNode):
     def grammar(self):
         return [
-            [IdentifierListNode, Terminal("COLON"), TypeNode, Terminal("SEMICOLON")]
+            [IdentifierListNode, Terminal("COLON"), TypeDefinitionNode, Terminal("SEMICOLON")]
         ]
 
 class VarDeclarationNode(ParseNode):
@@ -388,6 +410,33 @@ class VarSectionNode(ParseNode):
             []
         ]
 
+class FieldListTailNode(ParseNode):
+    def grammar(self):
+        return [
+            [Terminal("SEMICOLON"), FieldListNode],
+            []
+        ]
+
+class FieldListNode(ParseNode):
+    def grammar(self):
+        return [
+            [IdentifierListNode, Terminal("COLON"), TypeDefinitionNode, FieldListTailNode]
+        ]
+
+class RecordTypeNode(ParseNode):
+    def grammar(self):
+        return [
+            [Terminal("KEYWORD", "rekaman"), FieldListNode, Terminal("KEYWORD", "selesai")]
+        ]
+
+class TypeDefinitionNode(ParseNode):
+    def grammar(self):
+        return [
+            [TypeNode],
+            [ArrayTypeNode],
+            [RecordTypeNode]
+        ]
+
 class TypeItemTailNode(ParseNode):
     def grammar(self):
         return [
@@ -398,7 +447,7 @@ class TypeItemTailNode(ParseNode):
 class TypeItemNode(ParseNode):
     def grammar(self):
         return [
-            [Terminal("IDENTIFIER"), Terminal("RELATIONAL_OPERATOR", "="), TypeNode, Terminal("SEMICOLON")]
+            [Terminal("IDENTIFIER"), Terminal("RELATIONAL_OPERATOR", "="), TypeDefinitionNode, Terminal("SEMICOLON")]
         ]
 
 class TypeDeclarationNode(ParseNode):
