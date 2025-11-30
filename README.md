@@ -238,19 +238,6 @@ Program telah diuji dengan 14 test case plus 2 error case:
 | 3   | 13523142 | Perancangan DFA rules; Dokumentasi laporan; Perancangan diagram                                 | 25%        |
 | 4   | 13523155 | Dokumentasi laporan                                                                             | 25%        |
 
-## 📚 Referensi
-
-### Dokumentasi
-
-- **Laporan Milestone 1:** [doc/Laporan-1-JJK.pdf](doc/Laporan-1-JJK.pdf)
-- **Laporan Milestone 2:** [doc/Laporan-2-JJK.pdf](doc/Laporan-2-JJK.pdf)
-- **Diagram DFA (Milestone 1):** [doc/Diagram-1-JJK.png](doc/Diagram-1-JJK.png)
-- **Diagram Parse Tree (Milestone 2):** [doc/Diagram-2-JJK.png](doc/Diagram-2-JJK.png)
-
-### Link Eksternal
-
-- **Repository GitHub:** [github.com/fliegenhaan/JJK-Tubes-IF2224](https://github.com/fliegenhaan/JJK-Tubes-IF2224.git)
-
 ## 📄 Lisensi
 
 Proyek ini dibuat untuk keperluan akademik Tugas Besar IF2224 - Teori Bahasa Formal & Otomata, Institut Teknologi Bandung.
