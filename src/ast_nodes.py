@@ -355,12 +355,14 @@ class VarNode(AST):
         self.identifier = identifier
 
 class FieldAccessNode(AST):
-    def __init__(self, identifier_1=None, identifier_2=None, tail=None):
+    def __init__(self, identifier_1=None, identifier_2=None, index_expr=None, tail=None):
         self.identifier_1 = identifier_1
         self.identifier_2 = identifier_2
+        self.index_expr = index_expr
         self.tail = tail
 
 class FieldAccessTailNode(AST):
-    def __init__(self, identifier=None, next_tail=None):
+    def __init__(self, identifier=None, index_expr=None, next_tail=None):
         self.identifier = identifier
+        self.index_expr = index_expr
         self.next_tail = next_tail

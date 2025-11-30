@@ -486,19 +486,55 @@ class ASTTransformer:
             return NumberNode(val1, None, None)
 
     def visit_FieldAccessNode(self, node):
-        id1 = self.transform(node.children[0]).identifier
-        id2 = self.transform(node.children[2]).identifier
-        tail = self.transform(node.children[3])
-        return FieldAccessNode(id1, id2, tail)
+        if node.children[1].tipe == "DOT":
+            id1 = self.transform(node.children[0]).identifier
+            id2 = self.transform(node.children[2]).identifier
+            tail = self.transform(node.children[3])
+            return FieldAccessNode(
+                identifier_1=id1,
+                identifier_2=id2,
+                index_expr=None,
+                tail=tail
+            )
+
+        else:
+            id1 = self.transform(node.children[0]).identifier
+            index_expr = self.transform(node.children[2])
+            tail = self.transform(node.children[4])
+            return FieldAccessNode(
+                identifier_1=id1,
+                identifier_2=None,
+                index_expr=index_expr,
+                tail=tail
+            )
 
     def visit_FieldAccessTailNode(self, node):
+        # ε-case
         if not node.children:
-            return FieldAccessTailNode(None, None)
-        id_node = self.transform(node.children[1])
-        return FieldAccessTailNode(
-            id_node.identifier,
-            self.transform(node.children[2])
-        )
+            return FieldAccessTailNode(
+                identifier=None,
+                index_expr=None,
+                next_tail=None
+            )
+
+        if node.children[0].tipe == "DOT":
+            identifier = self.transform(node.children[1]).identifier
+            next_tail = self.transform(node.children[2])
+            return FieldAccessTailNode(
+                identifier=identifier,
+                index_expr=None,
+                next_tail=next_tail
+            )
+
+        else:
+            index_expr = self.transform(node.children[1])
+            next_tail = self.transform(node.children[3])
+            return FieldAccessTailNode(
+                identifier=None,
+                index_expr=index_expr,
+                next_tail=next_tail
+            )
+
 
     def visit_RelationalOperatorNode(self, node):
         return self.transform(node.children[0])

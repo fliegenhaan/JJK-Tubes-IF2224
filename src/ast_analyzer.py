@@ -153,6 +153,63 @@ class SemanticAnalyzer:
         return new_btab_idx, rec_size
 
 
+    def _normalize_type(self, type_idx, ref):
+        if type_idx > 5 and type_idx < len(self.tab):
+            tentry = self.tab[type_idx]
+            if tentry.obj == OBJ_TYPE:
+                base_type = tentry.type
+                base_ref  = tentry.ref
+
+                if base_type in (T_INTEGER, T_REAL, T_BOOLEAN, T_CHAR, T_STRING):
+                    return base_type, 0
+
+                if base_type in (5, 6):
+                    return base_type, base_ref
+
+        return type_idx, ref
+
+    def _array_element_after_index(self, current_type, current_ref, index_expr):
+        current_type, current_ref = self._normalize_type(current_type, current_ref)
+
+        if current_type != 5:
+            self.error("Attempting to index a non-array value")
+
+        if current_ref <= 0 or current_ref > len(self.atab):
+            self.error("Invalid array type reference for indexing")
+
+        arr_desc = self.atab[current_ref - 1]
+
+        index_type = self.analyze_expression(index_expr)
+
+        if arr_desc.inxtyp == T_INTEGER:
+            if index_type != T_INTEGER:
+                self.error("Array index must be of type integer")
+        elif arr_desc.inxtyp == T_CHAR:
+            if index_type != T_CHAR:
+                self.error("Array index must be of type char")
+        else:
+            self.error("Unsupported array index type")
+
+        if arr_desc.inxtyp == T_INTEGER:
+            static_index = None
+            try:
+                static_index = self.evaluate_static_expr(index_expr)
+            except Exception:
+                static_index = None
+
+            if static_index is not None:
+                if static_index < arr_desc.low or static_index > arr_desc.high:
+                    self.error(
+                        f"Array index {static_index} out of bounds "
+                        f"[{arr_desc.low}..{arr_desc.high}]"
+                    )
+
+        elem_type = arr_desc.eltyp
+        elem_ref  = arr_desc.elref
+
+        return elem_type, elem_ref
+
+
     def lookup(self, name):
         curr_lev = self.level
         while curr_lev >= 0:
@@ -357,26 +414,46 @@ class SemanticAnalyzer:
         if not entry:
             self.error(f"Undeclared variable '{node.identifier_1}'")
 
-        base_type = entry.type
-        base_ref  = entry.ref
+        current_type, current_ref = self._normalize_type(entry.type, entry.ref)
 
-        if base_type != 6:
-            self.error(f"'{node.identifier_1}' is not a record")
+        if node.identifier_2 is not None:
+            if current_type != 6:
+                self.error(f"'{node.identifier_1}' is not a record")
+            current_type, current_ref = self._lookup_field_in_record(
+                current_ref,
+                node.identifier_2
+            )
 
-        block_idx = base_ref
-
-        field_type, field_ref = self._lookup_field_in_record(block_idx, node.identifier_2)
+        elif getattr(node, "index_expr", None) is not None:
+            current_type, current_ref = self._array_element_after_index(
+                current_type,
+                current_ref,
+                node.index_expr
+            )
 
         tail = node.tail
-        while tail and tail.identifier:
-            if field_type != 6:
-                self.error(f"'{tail.identifier}' is not a field of a non-record value")
-            block_idx = field_ref
-            field_type, field_ref = self._lookup_field_in_record(block_idx, tail.identifier)
+        while tail and (tail.identifier is not None or getattr(tail, "index_expr", None) is not None):
+            if tail.identifier is not None:
+                current_type, current_ref = self._normalize_type(current_type, current_ref)
+                if current_type != 6:
+                    self.error(f"Accessing field '{tail.identifier}' of non-record value")
+                current_type, current_ref = self._lookup_field_in_record(
+                    current_ref,
+                    tail.identifier
+                )
+
+            elif tail.index_expr is not None:
+                current_type, current_ref = self._array_element_after_index(
+                    current_type,
+                    current_ref,
+                    tail.index_expr
+                )
+
             tail = tail.next_tail
 
-        node.type_index = field_type
-        return field_type
+        node.type_index = current_type
+        return current_type
+
 
     def _lookup_field_in_record(self, block_idx, field_name):
         b = self.btab[block_idx]
@@ -657,6 +734,9 @@ class SemanticAnalyzer:
                 self.error(f"Undeclared variable '{name}'")
                 return T_NOTYPE
 
+        elif isinstance(node.field_access_node, FieldAccessNode):
+            lhs_type = self._visit_FieldAccessNode_expr(node.field_access_node)
+
         rhs_type = self.analyze_expression(node.expression)
 
         if lhs_type != T_NOTYPE and rhs_type != T_NOTYPE:
@@ -665,15 +745,28 @@ class SemanticAnalyzer:
                 return lhs_type
 
             if lhs_type != rhs_type:
-                type_names = {1:'integer', 2:'real', 3:'boolean', 4:'char', 5:'string'}
+                type_names = {
+                    1: 'integer',
+                    2: 'real',
+                    3: 'boolean',
+                    4: 'char',
+                    5: 'string'
+                }
 
-                l_name = type_names.get(lhs_type, self.tab[lhs_type].name if lhs_type > 28 else str(lhs_type))
-                r_name = type_names.get(rhs_type, self.tab[rhs_type].name if rhs_type > 28 else str(rhs_type))
+                l_name = type_names.get(
+                    lhs_type,
+                    self.tab[lhs_type].name if lhs_type > 28 and lhs_type < len(self.tab) else str(lhs_type)
+                )
+                r_name = type_names.get(
+                    rhs_type,
+                    self.tab[rhs_type].name if rhs_type > 28 and rhs_type < len(self.tab) else str(rhs_type)
+                )
 
                 self.error(f"Type mismatch: cannot assign {r_name} to {l_name}")
                 return T_NOTYPE
 
         return lhs_type
+
 
     def _typename(self, tid):
         names = {
@@ -885,11 +978,18 @@ class SemanticAnalyzer:
                 op = opnode.lexeme
                 right_type = self.analyze_expression(tail.factor)
 
-                if op in ['*', '/']:
+                if op == '*':
                     if left_type in (T_INTEGER, T_REAL) and right_type in (T_INTEGER, T_REAL):
                         left_type = T_REAL if T_REAL in (left_type, right_type) else T_INTEGER
                     else:
-                        self.error(f"Incompatible operands for '{op}'")
+                        self.error(f"Incompatible operands for '*'")
+                        return T_NOTYPE
+
+                elif op == '/':
+                    if left_type in (T_INTEGER, T_REAL) and right_type in (T_INTEGER, T_REAL):
+                        left_type = T_REAL
+                    else:
+                        self.error("Operands for '/' must be numeric")
                         return T_NOTYPE
 
                 elif op in ['div', 'mod']:
@@ -914,6 +1014,7 @@ class SemanticAnalyzer:
 
             node.type_index = left_type
             return left_type
+
 
         return T_NOTYPE
 

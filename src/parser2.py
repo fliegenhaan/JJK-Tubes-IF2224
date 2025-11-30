@@ -132,13 +132,15 @@ class FieldAccessTailNode(ParseNode):
     def grammar(self):
         return [
             [Terminal("DOT"), Terminal("IDENTIFIER"), FieldAccessTailNode],
+            [Terminal("LBRACKET"), ExpressionNode, Terminal("RBRACKET"), FieldAccessTailNode],
             []
         ]
 
 class FieldAccessNode(ParseNode):
     def grammar(self):
         return [
-            [Terminal("IDENTIFIER"), Terminal("DOT"), Terminal("IDENTIFIER"), FieldAccessTailNode]
+            [Terminal("IDENTIFIER"), Terminal("DOT"), Terminal("IDENTIFIER"), FieldAccessTailNode],
+            [Terminal("IDENTIFIER"), Terminal("LBRACKET"), ExpressionNode, Terminal("RBRACKET"), FieldAccessTailNode]
         ]
 
 class ValueNode(ParseNode):
