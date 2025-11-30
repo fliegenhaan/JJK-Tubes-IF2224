@@ -559,6 +559,7 @@ class SemanticAnalyzer:
 
     def visit_AssignNode(self, node):
         lhs_type = T_NOTYPE
+
         if isinstance(node.var_node, VarNode):
             name = node.var_node.identifier
             idx, entry = self.lookup(name)
@@ -568,19 +569,26 @@ class SemanticAnalyzer:
                 lhs_type = entry.type
             else:
                 self.error(f"Undeclared variable '{name}'")
-        
-        rhs_type = self.analyze_expression(node.expression)
-        
-        if lhs_type != rhs_type and lhs_type != T_NOTYPE and rhs_type != T_NOTYPE:
-            if not (lhs_type == T_REAL and rhs_type == T_INTEGER):
-                l_name = self.tab[lhs_type].name if lhs_type > 28 else str(lhs_type)
-                r_name = self.tab[rhs_type].name if rhs_type > 28 else str(rhs_type)
-                type_names = {1:'integer', 2:'real', 3:'boolean', 4:'char', 5:'string'}
-                l_name = type_names.get(lhs_type, l_name)
-                r_name = type_names.get(rhs_type, r_name)
+                return T_NOTYPE
 
-                print(f"WARNING: Type mismatch. Target ({l_name}) := Value ({r_name})")
-        return T_NOTYPE
+        rhs_type = self.analyze_expression(node.expression)
+
+        if lhs_type != T_NOTYPE and rhs_type != T_NOTYPE:
+
+            if lhs_type == T_REAL and rhs_type == T_INTEGER:
+                return lhs_type
+
+            if lhs_type != rhs_type:
+                type_names = {1:'integer', 2:'real', 3:'boolean', 4:'char', 5:'string'}
+
+                l_name = type_names.get(lhs_type, self.tab[lhs_type].name if lhs_type > 28 else str(lhs_type))
+                r_name = type_names.get(rhs_type, self.tab[rhs_type].name if rhs_type > 28 else str(rhs_type))
+
+                self.error(f"Type mismatch: cannot assign {r_name} to {l_name}")
+                return T_NOTYPE
+
+        return lhs_type
+
 
     def visit_CallNode(self, node):
         name = node.identifier
@@ -618,8 +626,6 @@ class SemanticAnalyzer:
                 t = T_STRING
             elif isinstance(node, BooleanNode):
                 t = T_BOOLEAN
-            else:
-                t = T_NOTYPE
             node.type_index = t
             return t
 
@@ -629,73 +635,158 @@ class SemanticAnalyzer:
                 node.tab_index = idx
                 node.type_index = entry.type
                 return entry.type
-            self.error(f"Undeclared variable '{node.identifier}' used in expression")
+            self.error(f"Undeclared variable '{node.identifier}'")
+            return T_NOTYPE
 
         if isinstance(node, CallNode):
             self.analyze(node)
             idx, entry = self.lookup(node.identifier)
             if entry and entry.obj == OBJ_FUNCTION:
+                node.type_index = entry.type
                 return entry.type
+            self.error(f"Call to non-function '{node.identifier}' in expression")
+            return T_NOTYPE
+
+        if isinstance(node, UnaryOpNode):
+            op = node.operator.lexeme
+            operand_type = self.analyze_expression(node.term_node)
+
+            if op in ['+', '-']:
+                if operand_type in (T_INTEGER, T_REAL):
+                    node.type_index = operand_type
+                    return operand_type
+                self.error(f"Unary '{op}' requires numeric operand")
+                return T_NOTYPE
+
+            if op == 'not':
+                if operand_type == T_BOOLEAN:
+                    node.type_index = T_BOOLEAN
+                    return T_BOOLEAN
+                self.error("Unary 'not' requires boolean operand")
+                return T_NOTYPE
+
+            self.error(f"Unknown unary operator '{op}'")
             return T_NOTYPE
 
         if isinstance(node, BinOpNode):
-            op = node.operator.lexeme if getattr(node, "operator", None) else None
-
+            op = node.operator.lexeme
             left_type = self.analyze_expression(node.left)
             right_type = self.analyze_expression(node.right)
 
-            if op in ['<', '>', '<=', '>=', '=', '<>']:
-                if (left_type in (T_INTEGER, T_REAL) and right_type in (T_INTEGER, T_REAL)) \
-                   or left_type == right_type:
-                    t = T_BOOLEAN
+            if op in ['=', '<>', '<', '>', '<=', '>=']:
+                if left_type == right_type:
+                    node.type_index = T_BOOLEAN
+                    return T_BOOLEAN
+                self.error(f"Operands for relational operator '{op}' must have same type")
+                return T_NOTYPE
+
+            self.error(f"Unknown operator '{op}' in BinOpNode")
+            return T_NOTYPE
+
+        if isinstance(node, SimpleExprNode):
+            left_type = self.analyze_expression(node.term)
+            tail = node.tail
+
+            while tail:
+                if tail.additive_operator is None:
+                    tail = tail.next_tail
+                    continue
+
+                op = tail.additive_operator.lexeme
+                right_type = self.analyze_expression(tail.term)
+
+                if op in ['+', '-']:
+                    if left_type in (T_INTEGER, T_REAL) and right_type in (T_INTEGER, T_REAL):
+                        left_type = T_REAL if T_REAL in (left_type, right_type) else T_INTEGER
+                    else:
+                        self.error(f"Incompatible operands for '{op}'")
+                        return T_NOTYPE
+
+                elif op in ['or']:
+                    if left_type == T_BOOLEAN and right_type == T_BOOLEAN:
+                        left_type = T_BOOLEAN
+                    else:
+                        self.error("Operands for 'or' must be boolean")
+                        return T_NOTYPE
+
+                tail = tail.next_tail
+
+            node.type_index = left_type
+            return left_type
+
+        if isinstance(node, TermNode):
+            left_type = self.analyze_expression(node.factor)
+            tail = node.tail
+
+            while tail:
+                opnode = tail.multiplicative_operator
+                if opnode is None:
+                    tail = tail.next_tail
+                    continue
+
+                op = opnode.lexeme
+                right_type = self.analyze_expression(tail.factor)
+
+                if op in ['*', '/']:
+                    if left_type in (T_INTEGER, T_REAL) and right_type in (T_INTEGER, T_REAL):
+                        left_type = T_REAL if T_REAL in (left_type, right_type) else T_INTEGER
+                    else:
+                        self.error(f"Incompatible operands for '{op}'")
+                        return T_NOTYPE
+
+                elif op in ['div', 'mod']:
+                    if left_type == T_INTEGER and right_type == T_INTEGER:
+                        left_type = T_INTEGER
+                    else:
+                        self.error(f"Operands for '{op}' must be integers")
+                        return T_NOTYPE
+
+                elif op == 'and':
+                    if left_type == T_BOOLEAN and right_type == T_BOOLEAN:
+                        left_type = T_BOOLEAN
+                    else:
+                        self.error("Operands for 'and' must be boolean")
+                        return T_NOTYPE
+
                 else:
-                    print(f"WARNING: Incompatible operands for relational operator '{op}'")
-                    t = T_BOOLEAN
-                node.type_index = t
-                return t
+                    self.error(f"Unknown multiplicative operator '{op}'")
+                    return T_NOTYPE
 
-            if op in ['and', 'or']:
-                if left_type != T_BOOLEAN or right_type != T_BOOLEAN:
-                    print(f"WARNING: Non-boolean operands to logical operator '{op}'")
-                node.type_index = T_BOOLEAN
-                return T_BOOLEAN
+                tail = tail.next_tail
 
-            if op in ['+', '-', '*', '/', 'div', 'mod']:
-                if left_type == T_REAL or right_type == T_REAL:
-                    t = T_REAL
-                elif left_type == T_INTEGER and right_type == T_INTEGER:
-                    t = T_INTEGER
-                else:
-                    print(f"WARNING: Incompatible operands for arithmetic operator '{op}'")
-                    t = T_NOTYPE
-                node.type_index = t
-                return t
+            node.type_index = left_type
+            return left_type
 
-            t = T_NOTYPE
-            if left_type == T_REAL or right_type == T_REAL:
-                t = T_REAL
-            elif left_type == T_INTEGER and right_type == T_INTEGER:
-                t = T_INTEGER
-            elif left_type == T_BOOLEAN and right_type == T_BOOLEAN:
-                t = T_BOOLEAN
-            node.type_index = t
-            return t
+        return T_NOTYPE
 
-        if isinstance(node, UnaryOpNode):
-            t = self.analyze_expression(node.term_node) or \
-                self.analyze_expression(node.factor_node)
-            node.type_index = t
-            return t
+    def visit_WhileNode(self, node):
+        cond_type = self.analyze_expression(node.expression)
 
-        t = T_NOTYPE
-        if hasattr(node, '__dict__'):
-            for key, value in node.__dict__.items():
-                if isinstance(value, AST) and not isinstance(value, OperatorNode):
-                    res_type = self.analyze_expression(value)
-                    if res_type != T_NOTYPE:
-                        t = res_type
-        return t
+        if cond_type != T_BOOLEAN:
+            self.error("Condition of WHILE must be boolean")
 
+        self.analyze(node.statement)
+
+
+    def visit_IfNode(self, node):
+        cond_type = self.analyze_expression(node.expression)
+
+        if cond_type != T_BOOLEAN:
+            self.error("Condition of IF must be boolean")
+
+        self.analyze(node.then_statement)
+
+        if node.else_statement:
+            self.analyze(node.else_statement)
+
+
+    def visit_RepeatNode(self, node):
+        self.analyze(node.statement_list)
+
+        cond_type = self.analyze_expression(node.expression)
+
+        if cond_type != T_BOOLEAN:
+            self.error("Condition of REPEAT..UNTIL must be boolean")
 
     def _collect_identifiers(self, id_list_node):
         ids = []
