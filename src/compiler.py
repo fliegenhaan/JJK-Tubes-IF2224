@@ -112,17 +112,17 @@ def run_ast_generation(parse_tree_root):
 
 def run_semantic_analysis(ast_root):
     _print_stage_header("Semantic Analysis (Symbol Tables)")
+    
     try:
         analyzer = SemanticAnalyzer()
-        
         analyzer.analyze(ast_root)
-        
         analyzer.print_tables()
-        
+    
     except Exception as e:
-        print(f"Error during Semantic Analysis: {e}")
-        import traceback
-        traceback.print_exc()
+        msg = str(e)
+        if not msg.startswith("Semantic Error"):
+            msg = "Semantic Error: " + msg
+        print(msg)
         sys.exit(1)
 
 
