@@ -126,6 +126,32 @@ class SemanticAnalyzer:
         self.btab[current_btab_idx].last = idx
         return idx
 
+
+    def _expr_is_char(self, node):
+        if isinstance(node, CharNode):
+            return True
+        if isinstance(node, SimpleExprNode):
+            return self._expr_is_char(node.term)
+        if isinstance(node, TermNode):
+            return self._expr_is_char(node.factor)
+        if isinstance(node, UnaryOpNode):
+            return (self._expr_is_char(node.term_node) or
+                    self._expr_is_char(node.factor_node))
+        return False
+
+    def _build_record_block(self, record_node: RecordTypeNode):
+        self.level += 1
+        new_btab_idx = len(self.btab)
+        self.btab.append(BtabEntry(last=0, lpar=0, psze=0, vsze=0))
+        self.display[self.level] = new_btab_idx
+
+        rec_size = self.analyze(record_node.field_list)
+        self.btab[new_btab_idx].vsze = rec_size
+
+        self.level -= 1
+        return new_btab_idx, rec_size
+
+
     def lookup(self, name):
         curr_lev = self.level
         while curr_lev >= 0:
@@ -140,16 +166,19 @@ class SemanticAnalyzer:
         return 0, None
 
     def get_type_size(self, type_idx):
-        if type_idx <= 5:
+        if type_idx <= 5 and type_idx != T_NOTYPE:
             return 1
-        else:
-            if type_idx < len(self.tab):
-                entry = self.tab[type_idx]
-                if entry.ref > 0 and entry.ref <= len(self.atab) and entry.obj == OBJ_TYPE: 
-                     return self.atab[entry.ref - 1].size
-                elif entry.obj == OBJ_TYPE and entry.adr > 0:
-                     return entry.adr
-            return 1
+
+        if 0 < type_idx < len(self.tab):
+            entry = self.tab[type_idx]
+            if entry.obj == OBJ_TYPE:
+                if entry.adr > 0:
+                    return entry.adr
+                if entry.ref > 0 and entry.ref <= len(self.atab):
+                    return self.atab[entry.ref - 1].size
+
+        return 1
+
 
     def analyze(self, node):
         if node is None: return T_NOTYPE
@@ -216,11 +245,23 @@ class SemanticAnalyzer:
 
     def visit_ProgramNode(self, node):
         prog_name = node.program_header.identifier
-        self.enter(prog_name, OBJ_PROGRAM, T_NOTYPE)
-        
+
+        self.level = 1
+        new_btab_idx = len(self.btab)
+        parent_idx = self.display[0]
+        parent_last = self.btab[parent_idx].last
+
+        self.btab.append(BtabEntry(last=parent_last, lpar=0, psze=0, vsze=0))
+        self.display[self.level] = new_btab_idx
+
+        self.enter(prog_name, OBJ_PROGRAM, T_NOTYPE, nrm=1)
+
         self.analyze(node.declaration_part)
         self.analyze(node.compound_statement)
+
+        self.level = 0
         return T_NOTYPE
+
 
     def visit_BlockNode(self, node):
         self.analyze(node.declaration_part)
@@ -261,7 +302,7 @@ class SemanticAnalyzer:
                  try: val = int(s_val)
                  except: pass
         
-        self.enter(name, OBJ_CONSTANT, type_idx, adr=val) 
+        self.enter(name, OBJ_CONSTANT, type_idx, adr=val, nrm=0)
         return T_NOTYPE
 
     def visit_TypeSectionNode(self, node):
@@ -281,43 +322,53 @@ class SemanticAnalyzer:
 
     def visit_TypeItemNode(self, node):
         name = node.identifier
-        
+
         if isinstance(node.type_definition, TypeNode):
-            type_idx = self._resolve_type(node.type_definition)
-            self.enter(name, OBJ_TYPE, type_idx, ref=0)
-        else:
-            idx = self.enter(name, OBJ_TYPE, T_NOTYPE)
-            self.tab[idx].type = idx 
+            base_idx = self._resolve_type(node.type_definition)
+            self.enter(name, OBJ_TYPE, base_idx, ref=0)
+            return T_NOTYPE
 
-            res = self.analyze(node.type_definition)
+        idx = self.enter(name, OBJ_TYPE, T_NOTYPE)
+        if isinstance(node.type_definition, ArrayTypeNode):
+            atab_idx = self.analyze(node.type_definition)
+            arr_size = self.atab[atab_idx - 1].size
 
-            if isinstance(node.type_definition, ArrayTypeNode):
-                self.tab[idx].ref = res
-            elif isinstance(node.type_definition, RecordTypeNode):
-                self.tab[idx].adr = res
+            self.tab[idx].type = 5
+            self.tab[idx].ref = atab_idx
+            self.tab[idx].adr = arr_size
+
+        elif isinstance(node.type_definition, RecordTypeNode):
+            block_idx, rec_size = self._build_record_block(node.type_definition)
+
+            self.tab[idx].type = 6
+            self.tab[idx].ref = block_idx
+            self.tab[idx].adr = rec_size
 
         return T_NOTYPE
 
+
     def visit_RecordTypeNode(self, node):
-        return self.analyze(node.field_list)
+        block_idx, _ = self._build_record_block(node)
+        return block_idx
+
         
     def visit_FieldListNode(self, node):
         type_idx = self._resolve_type(node.type_definition)
-        
         size_per_field = self.get_type_size(type_idx)
-        
+
         identifiers = self._collect_identifiers(node.identifier_list)
-        
+
         offset_accum = 0
         for field_name in identifiers:
-            self.enter(field_name, OBJ_VARIABLE, type_idx, adr=offset_accum) 
+            self.enter(field_name, OBJ_VARIABLE, type_idx, adr=offset_accum)
             offset_accum += size_per_field
-            
+
         tail_size = 0
         if node.field_list_tail:
             tail_size = self.analyze(node.field_list_tail)
-            
+
         return (len(identifiers) * size_per_field) + tail_size
+
         
     def visit_FieldListTailNode(self, node):
         if hasattr(node, 'children') and node.children:
@@ -325,34 +376,64 @@ class SemanticAnalyzer:
                 if isinstance(child, AST):
                     return self.analyze(child)
         return 0
-        
+    
     def visit_ArrayTypeNode(self, node):
+        low_expr = node.range_node.expression_1
+        high_expr = node.range_node.expression_2
 
-        low = self.evaluate_static_expr(node.range_node.expression_1)
-        high = self.evaluate_static_expr(node.range_node.expression_2)
-        
-        el_type_idx = T_NOTYPE
-        el_ref = 0
-        el_size = 1
-        
-        if isinstance(node.type_node, ArrayTypeNode):
-            el_ref = self.analyze(node.type_node)
-            if el_ref > 0: el_size = self.atab[el_ref - 1].size
-            el_type_idx = T_NOTYPE 
+        low_raw = self.evaluate_static_expr(low_expr)
+        high_raw = self.evaluate_static_expr(high_expr)
+
+        is_char_index = self._expr_is_char(low_expr) or self._expr_is_char(high_expr)
+
+        if is_char_index:
+            inxtyp = T_CHAR
+            count = high_raw - low_raw + 1
+            low = 1
+            high = count
         else:
-            el_type_idx = self._resolve_type(node.type_node)
-            el_size = self.get_type_size(el_type_idx)
-            
-            if el_type_idx > 5:
-                entry = self.tab[el_type_idx]
-                if entry.ref > 0: el_ref = entry.ref
+            inxtyp = T_INTEGER
+            low = low_raw
+            high = high_raw
+            count = high - low + 1
 
-        count = (high - low + 1)
-        total_size = count * el_size
-        
-        new_entry = AtabEntry(inxtyp=T_INTEGER, eltyp=el_type_idx, elref=el_ref, 
-                              low=low, high=high, elsze=el_size, size=total_size)
-        
+        eltyp = T_NOTYPE
+        elref = 0
+        elsze = 1
+
+        if isinstance(node.type_node, ArrayTypeNode):
+            inner_atab_idx = self.analyze(node.type_node)
+            elsze = self.atab[inner_atab_idx - 1].size
+            eltyp = 5
+            elref = inner_atab_idx
+
+        else:
+            if isinstance(node.type_node, TypeNode):
+                resolved = self._resolve_type(node.type_node)
+            else:
+                resolved = T_NOTYPE
+
+            if resolved <= 5 and resolved != T_NOTYPE:
+                eltyp = resolved
+                elsze = 1
+                elref = 0
+            elif resolved > 5:
+                type_entry = self.tab[resolved]
+                eltyp = type_entry.type
+                elref = type_entry.ref
+                elsze = self.get_type_size(resolved)
+
+        total_size = count * elsze
+
+        new_entry = AtabEntry(
+            inxtyp=inxtyp,
+            eltyp=eltyp,
+            elref=elref,
+            low=low,
+            high=high,
+            elsze=elsze,
+            size=total_size
+        )
         self.atab.append(new_entry)
         return len(self.atab)
 
@@ -370,66 +451,39 @@ class SemanticAnalyzer:
     def visit_VarItemNode(self, node):
         identifiers = self._collect_identifiers(node.identifier_list)
         btab_idx = self.display[self.level]
-        
-        # Strategy:
-        # 1. If Anonymous Record: We must enter Identifiers FIRST, then fields (fields appear after vars in tab).
-        #    But we need size for addressing.
-        #    Solution: Enter vars with 0 size -> Analyze Record -> Update vars with size.
-        # 2. If Array/Named: Standard flow.
 
-        is_anon_rec = isinstance(node.type_node, RecordTypeNode)
-        
-        type_idx = T_NOTYPE
-        ref_idx = 0
+        v_type = T_NOTYPE
+        v_ref = 0
         size_per_var = 1
-        var_indices = []
 
-        # Step 1: Resolve Type (or prepare for Anon Record)
-        if is_anon_rec:
-            # We defer analysis. type_idx is Structure (0).
-            pass
+        if isinstance(node.type_node, RecordTypeNode):
+            rec_block_idx, rec_size = self._build_record_block(node.type_node)
+            v_type = 6
+            v_ref = rec_block_idx
+            size_per_var = rec_size
+
         elif isinstance(node.type_node, ArrayTypeNode):
-            # Anonymous Array: Create ATAB entry
-            ref_idx = self.analyze(node.type_node)
-            if ref_idx > 0:
-                 size_per_var = self.atab[ref_idx - 1].size
-        else:
-            # Named Type
-            type_idx = self._resolve_type(node.type_node)
-            size_per_var = self.get_type_size(type_idx)
-            
-            # Check if Named Type refers to ATAB
-            if type_idx > 28:
-                entry = self.tab[type_idx]
-                if entry.ref > 0:
-                    ref_idx = entry.ref
+            atab_idx = self.analyze(node.type_node)
+            v_type = 5
+            v_ref = atab_idx
+            size_per_var = self.atab[atab_idx - 1].size
 
-        # Step 2: Register Variables
+        else:
+            resolved = self._resolve_type(node.type_node)
+            if resolved <= 5 and resolved != T_NOTYPE:
+                v_type = resolved
+                v_ref = 0
+                size_per_var = 1
+            else:
+                type_entry = self.tab[resolved]
+                v_type = type_entry.type
+                v_ref = type_entry.ref
+                size_per_var = self.get_type_size(resolved)
+
         for name in identifiers:
             current_vsze = self.btab[btab_idx].vsze
-            idx = self.enter(name, OBJ_VARIABLE, type_idx, ref=ref_idx, adr=current_vsze)
-            var_indices.append(idx)
-            
-            # For anon record, we increment vsze LATER after size calc
-            if not is_anon_rec:
-                self.btab[btab_idx].vsze += size_per_var
-
-        # Step 3: Handle Anonymous Record (Identifiers already in table)
-        if is_anon_rec:
-            # Analyze record definition -> Registers fields (c, r) -> Returns size
-            rec_size = self.analyze(node.type_node)
-            
-            # Update registered variables with correct size/addressing logic
-            current_base_adr = self.tab[var_indices[0]].adr # Address of first var
-            
-            for i, idx in enumerate(var_indices):
-                entry = self.tab[idx]
-                entry.adr = int(current_base_adr + (i * rec_size))
-                # Update ref to hold size if needed, or 0
-            
-            # Update block total size
-            total_added_size = len(var_indices) * rec_size
-            self.btab[btab_idx].vsze += total_added_size
+            self.enter(name, OBJ_VARIABLE, v_type, ref=v_ref, adr=current_vsze)
+            self.btab[btab_idx].vsze += size_per_var
 
         return T_NOTYPE
 
@@ -483,18 +537,20 @@ class SemanticAnalyzer:
     def visit_ParameterGroupNode(self, node):
         identifiers = self._collect_identifiers(node.identifier_list)
         type_idx = self._resolve_type(node.type_node)
+
         is_var_param = (node.modifier.keyword == 'variabel') if node.modifier else False
-        nrm = 0 if is_var_param else 1
-        
+        nrm = 0
+
         btab_idx = self.display[self.level]
-        param_adr = self.btab[btab_idx].psze 
-        
+        param_adr = self.btab[btab_idx].psze
+
         for name in identifiers:
             idx = self.enter(name, OBJ_PARAMETER, type_idx, nrm=nrm, adr=param_adr)
-            self.btab[btab_idx].lpar = idx 
-            self.btab[btab_idx].psze += 1 
+            self.btab[btab_idx].lpar = idx
+            self.btab[btab_idx].psze += 1
             param_adr += 1
         return T_NOTYPE
+
         
     def visit_ParameterTailNode(self, node):
         if node.param_group_node: self.analyze(node.param_group_node)
@@ -550,15 +606,20 @@ class SemanticAnalyzer:
         return T_NOTYPE
 
     def analyze_expression(self, node):
-        if node is None: return T_NOTYPE
+        if node is None:
+            return T_NOTYPE
 
         if isinstance(node, (NumberNode, CharNode, StringNode, BooleanNode)):
             if isinstance(node, NumberNode):
                 t = T_REAL if '.' in str(node.value) else T_INTEGER
-            elif isinstance(node, CharNode): t = T_CHAR
-            elif isinstance(node, StringNode): t = T_STRING
-            elif isinstance(node, BooleanNode): t = T_BOOLEAN
-            else: t = T_NOTYPE
+            elif isinstance(node, CharNode):
+                t = T_CHAR
+            elif isinstance(node, StringNode):
+                t = T_STRING
+            elif isinstance(node, BooleanNode):
+                t = T_BOOLEAN
+            else:
+                t = T_NOTYPE
             node.type_index = t
             return t
 
@@ -569,36 +630,72 @@ class SemanticAnalyzer:
                 node.type_index = entry.type
                 return entry.type
             self.error(f"Undeclared variable '{node.identifier}' used in expression")
-            return T_NOTYPE
 
         if isinstance(node, CallNode):
             self.analyze(node)
             idx, entry = self.lookup(node.identifier)
-            if entry and entry.obj == OBJ_FUNCTION: return entry.type
+            if entry and entry.obj == OBJ_FUNCTION:
+                return entry.type
             return T_NOTYPE
 
         if isinstance(node, BinOpNode):
+            op = node.operator.lexeme if getattr(node, "operator", None) else None
+
             left_type = self.analyze_expression(node.left)
             right_type = self.analyze_expression(node.right)
+
+            if op in ['<', '>', '<=', '>=', '=', '<>']:
+                if (left_type in (T_INTEGER, T_REAL) and right_type in (T_INTEGER, T_REAL)) \
+                   or left_type == right_type:
+                    t = T_BOOLEAN
+                else:
+                    print(f"WARNING: Incompatible operands for relational operator '{op}'")
+                    t = T_BOOLEAN
+                node.type_index = t
+                return t
+
+            if op in ['and', 'or']:
+                if left_type != T_BOOLEAN or right_type != T_BOOLEAN:
+                    print(f"WARNING: Non-boolean operands to logical operator '{op}'")
+                node.type_index = T_BOOLEAN
+                return T_BOOLEAN
+
+            if op in ['+', '-', '*', '/', 'div', 'mod']:
+                if left_type == T_REAL or right_type == T_REAL:
+                    t = T_REAL
+                elif left_type == T_INTEGER and right_type == T_INTEGER:
+                    t = T_INTEGER
+                else:
+                    print(f"WARNING: Incompatible operands for arithmetic operator '{op}'")
+                    t = T_NOTYPE
+                node.type_index = t
+                return t
+
             t = T_NOTYPE
-            if left_type == T_REAL or right_type == T_REAL: t = T_REAL
-            elif left_type == T_INTEGER and right_type == T_INTEGER: t = T_INTEGER
-            elif left_type == T_BOOLEAN and right_type == T_BOOLEAN: t = T_BOOLEAN
+            if left_type == T_REAL or right_type == T_REAL:
+                t = T_REAL
+            elif left_type == T_INTEGER and right_type == T_INTEGER:
+                t = T_INTEGER
+            elif left_type == T_BOOLEAN and right_type == T_BOOLEAN:
+                t = T_BOOLEAN
             node.type_index = t
             return t
-            
+
         if isinstance(node, UnaryOpNode):
-            t = self.analyze_expression(node.term_node) or self.analyze_expression(node.factor_node)
+            t = self.analyze_expression(node.term_node) or \
+                self.analyze_expression(node.factor_node)
             node.type_index = t
             return t
-        
+
         t = T_NOTYPE
         if hasattr(node, '__dict__'):
             for key, value in node.__dict__.items():
                 if isinstance(value, AST) and not isinstance(value, OperatorNode):
                     res_type = self.analyze_expression(value)
-                    if res_type != T_NOTYPE: t = res_type
+                    if res_type != T_NOTYPE:
+                        t = res_type
         return t
+
 
     def _collect_identifiers(self, id_list_node):
         ids = []
@@ -612,20 +709,40 @@ class SemanticAnalyzer:
 
     def print_tables(self):
         print("\n--- SYMBOL TABLE (tab) ---")
-        print(f"{'Idx':<4} | {'Name':<10} | {'Obj':<5} | {'Typ':<3} | {'Ref':<3} | {'Nrm':<3} | {'Lev':<3} | {'Adr':<3} | {'Link':<4} |") 
-        print("-" * 75)
-        for i, entry in enumerate(self.tab):
-            if i > 28 or entry.lev >= 0: print(f"{i:<4} {entry}")
+        print(f"{'Idx':<4} | {'Identifier':<12} | {'Link':<4} | {'Obj':<3} | {'Typ':<3} | {'Ref':<3} | {'Nrm':<3} | {'Lev':<3} | {'Adr':<3} |")
+        print("-" * 85)
+
+        for i, e in enumerate(self.tab):
+            # Skip the 0-padding entries if needed
+            if i > 0:
+                print(f"{i:<4} | "
+                      f"{e.name:<12} | "
+                      f"{e.link:<4} | "
+                      f"{e.obj:<3} | "
+                      f"{e.type:<3} | "
+                      f"{e.ref:<3} | "
+                      f"{e.nrm:<3} | "
+                      f"{e.lev:<3} | "
+                      f"{e.adr:<3} |")
 
         print("\n--- BLOCK TABLE (btab) ---")
         print(f"{'Idx':<4} | {'Last':<4} | {'Lpar':<4} | {'P.Sz':<4} | {'V.Sz':<4} |")
-        print("-" * 30)
-        for i, entry in enumerate(self.btab):
-            print(f"{i:<4} {entry}")
+        print("-" * 40)
 
-        if self.atab:
-            print("\n--- ARRAY TABLE (atab) ---")
-            print(f"{'Idx':<4} | {'Inx':<4} | {'ElTyp':<5} | {'ElRef':<5} | {'Low':<4} | {'High':<4} | {'ElSz':<4} | {'Sz':<4} |")
-            print("-" * 70)
-            for i, entry in enumerate(self.atab):
-                print(f"{i+1:<4} {entry}")
+        for i, b in enumerate(self.btab):
+            print(f"{i:<4} | {b.last:<4} | {b.lpar:<4} | {b.psze:<4} | {b.vsze:<4} |")
+
+        print("\n--- ARRAY TABLE (atab) ---")
+        print(f"{'Idx':<4} | {'Xtyp':<4} | {'Etyp':<4} | {'Eref':<4} | {'Low':<4} | {'High':<4} | {'ElSz':<4} | {'Size':<4} |")
+        print("-" * 70)
+
+        for i, a in enumerate(self.atab):
+            print(f"{i+1:<4} | "
+                  f"{a.inxtyp:<4} | "
+                  f"{a.eltyp:<4} | "
+                  f"{a.elref:<4} | "
+                  f"{a.low:<4} | "
+                  f"{a.high:<4} | "
+                  f"{a.elsze:<4} | "
+                  f"{a.size:<4} |")
+
